@@ -1,0 +1,5 @@
+train: /content/drive/MyDrive/project/train/images
+val: /content/drive/MyDrive/project/valid/images
+
+nc: 10  # Number of classes
+names: ['Hardhat', 'Mask', 'NO-Hardhat', 'NO-Mask', 'NO-Safety Vest', 'Person', 'Safety Cone', 'Safety Vest', 'Machinery', 'Vehicle']
