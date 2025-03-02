@@ -3,3 +3,5 @@ train/
 valid/
 img/
 Dataset/
+detect/
+QR_codes/
