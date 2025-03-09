@@ -3,6 +3,9 @@ import { initializeApp } from "firebase/app";
 import { getStorage, ref, uploadString, getDownloadURL, deleteObject } from "firebase/storage";  
 import { getFirestore, collection, getDocs, query, orderBy, setDoc, doc, deleteDoc } from "firebase/firestore";  
 import QRCode from "qrcode"; // Import qrcode library
+import { useNavigate } from "react-router-dom"; // ✅ Import useNavigate
+
+
 
 // Firebase Config
 const firebaseConfig = {
@@ -21,6 +24,7 @@ const storage = getStorage(app);
 const db = getFirestore(app);
 
 const WorkerQRSystem = () => {
+  const navigate = useNavigate();
   const [worker, setWorker] = useState({ name: "", workerId: "", post: "" });
   const [workers, setWorkers] = useState([]);
   const [editingWorkerId, setEditingWorkerId] = useState(null);
@@ -125,131 +129,133 @@ const WorkerQRSystem = () => {
     });
   };
 
+  
   return (
     <div
-      style={{
-        padding: "20px",
-        maxWidth: "800px",
-        margin: "auto",
-        fontFamily: "Arial, sans-serif",
-      }}
+      className="min-h-screen bg-cover bg-center bg-no-repeat flex items-center justify-center"
+      style={{ backgroundImage: "url('/images/bg.jpg')" }}
     >
-      <h2>👷 Admin - Worker QR Code System</h2>
-
-      <form
-        onSubmit={handleSubmit}
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "10px",
-          marginBottom: "20px",
-        }}
-      >
-        <input
-          type="text"
-          name="name"
-          placeholder="Worker Name"
-          value={worker.name}
-          onChange={handleChange}
-          required
-        />
-        <input
-          type="text"
-          name="workerId"
-          placeholder="Worker ID"
-          value={worker.workerId}
-          onChange={handleChange}
-          required
-          disabled={editingWorkerId !== null} // Disable editing the workerId
-        />
-        <input
-          type="text"
-          name="post"
-          placeholder="Post"
-          value={worker.post}
-          onChange={handleChange}
-          required
-        />
-        <button
-          type="submit"
-          style={{
-            padding: "10px",
-            background: editingWorkerId ? "orange" : "green",
-            color: "white",
-            border: "none",
-            cursor: "pointer",
-          }}
-        >
-          {editingWorkerId ? "✏️ Update Worker" : "➕ Add Worker & Generate QR"}
-        </button>
-      </form>
-
-      <h3>📋 Worker List</h3>
-      <table
-        style={{ width: "100%", borderCollapse: "collapse", marginTop: "20px" }}
-      >
-        <thead>
-          <tr style={{ background: "#f4f4f4", textAlign: "left" }}>
-            <th>Name</th>
-            <th>Worker ID</th>
-            <th>Post</th>
-            <th>QR Code</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {workers.map((w) => (
-            <tr key={w.workerId}>
-              <td>{w.name}</td>
-              <td>{w.workerId}</td>
-              <td>{w.post}</td>
-              <td>
-                {w.qrCodeURL ? (
-                  <a
-                    href={w.qrCodeURL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    🔍 View QR
-                  </a>
-                ) : (
-                  "No QR"
-                )}
-              </td>
-              <td>
-                <button
-                  onClick={() => {
-                    setWorker(w);
-                    setEditingWorkerId(w.workerId);
-                  }}
-                  style={{
-                    marginRight: "10px",
-                    background: "orange",
-                    color: "white",
-                    border: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  ✏️ Edit
-                </button>
-                <button
-                  onClick={() => handleDelete(w.workerId)}
-                  style={{
-                    background: "red",
-                    color: "white",
-                    border: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  🗑 Delete
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="w-full max-w-3xl bg-white bg-opacity-90 p-6 rounded-lg shadow-xl">
+        <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+          👷 Admin - Worker QR Code System
+        </h2>
+  
+        {/* Worker Form */}
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4 mb-6">
+          <input
+            type="text"
+            name="name"
+            placeholder="Worker Name"
+            value={worker.name}
+            onChange={handleChange}
+            required
+            className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+          <input
+            type="text"
+            name="workerId"
+            placeholder="Worker ID"
+            value={worker.workerId}
+            onChange={handleChange}
+            required
+            disabled={editingWorkerId !== null}
+            className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-200"
+          />
+          <input
+            type="text"
+            name="post"
+            placeholder="Post"
+            value={worker.post}
+            onChange={handleChange}
+            required
+            className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+          <button
+            type="submit"
+            className={`py-2 px-4 text-white font-semibold rounded-lg transition ${
+              editingWorkerId ? "bg-orange-500 hover:bg-orange-600" : "bg-green-500 hover:bg-green-600"
+            }`}
+          >
+            {editingWorkerId ? "✏️ Update Worker" : "➕ Add Worker & Generate QR"}
+          </button>
+        </form>
+  
+        {/* Worker List */}
+        <h3 className="text-xl font-semibold text-gray-700">📋 Worker List</h3>
+        <div className="overflow-x-auto mt-4">
+          <table className="w-full min-w-[600px] border-collapse bg-white bg-opacity-90 rounded-lg shadow-lg">
+            <thead>
+              <tr className="bg-gray-100 text-gray-800 text-sm">
+                <th className="p-2 text-left">Name</th>
+                <th className="p-2 text-left">Worker ID</th>
+                <th className="p-2 text-left">Post</th>
+                <th className="p-2 text-left">QR Code</th>
+                <th className="p-2 text-left">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {workers.map((w) => (
+                <tr key={w.workerId} className="border-t hover:bg-gray-50 text-sm">
+                  <td className="p-2">{w.name}</td>
+                  <td className="p-2">{w.workerId}</td>
+                  <td className="p-2">{w.post}</td>
+                  <td className="p-2 whitespace-nowrap">
+                    {w.qrCodeURL ? (
+                      <a
+                        href={w.qrCodeURL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-500 hover:underline"
+                      >
+                        🔍 View QR
+                      </a>
+                    ) : (
+                      <span className="text-gray-500">No QR</span>
+                    )}
+                  </td>
+                  <td className="p-2 flex gap-1">
+                    <button
+                      onClick={() => {
+                        setWorker(w);
+                        setEditingWorkerId(w.workerId);
+                      }}
+                      className="px-2 py-1 bg-orange-500 text-white text-xs rounded hover:bg-orange-600 transition"
+                    >
+                      ✏️ Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(w.workerId)}
+                      className="px-2 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600 transition"
+                    >
+                      🗑 Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+  
+        {/* Centered QR Scanner Button */}
+        <div className="flex justify-center mt-6">
+          <button
+            onClick={() => navigate("/scan")}
+            className="py-2 px-4 bg-blue-500 text-white font-semibold rounded-lg hover:bg-blue-600 transition"
+          >
+            📷 Go to QR Scanner
+          </button>
+        </div>
+      </div>
     </div>
   );
-};
+  
+  };
+  
+  
+  
+  
+  
+
+
 
 export default WorkerQRSystem;
