@@ -25,66 +25,52 @@ const FaceRecognition = () => {
   const [message, setMessage] = useState("Loading facial recognition models...");
   const [modelLoadingProgress, setModelLoadingProgress] = useState(0);
   const [webcamReady, setWebcamReady] = useState(false);
-  const [debugInfo, setDebugInfo] = useState([]);
   
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
   const navigate = useNavigate();
 
-  // Debug function
-  const addDebugLog = (log) => {
-    console.log(log);
-    setDebugInfo(prev => [...prev, `${new Date().toLocaleTimeString()}: ${log}`]);
-  };
-
   // Load face-api models
   useEffect(() => {
     const loadModels = async () => {
       try {
-        addDebugLog("Starting to load facial recognition models...");
         setMessage("Loading facial recognition models...");
         
         // Use public URL for models - adjust this according to your file structure
+        // For React apps using create-react-app, models should be in the public folder
         const MODEL_URL = process.env.PUBLIC_URL + '/models';
-        addDebugLog(`Using model path: ${MODEL_URL}`);
         
         // Load models with better error handling and sequential loading
         setModelLoadingProgress(0);
         
         try {
-          addDebugLog("Loading SSD Mobilenet model...");
           await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
           setModelLoadingProgress(33);
           setMessage("Loading facial recognition models (1/3)...");
-          addDebugLog("✅ SSD Mobilenet model loaded successfully");
+          console.log("✅ SSD Mobilenet model loaded");
         } catch (error) {
-          addDebugLog(`❌ Error loading SSD Mobilenet model: ${error.message}`);
           console.error("Error loading SSD Mobilenet model:", error);
           setMessage(`Error loading SSD Mobilenet model. Check that ${MODEL_URL}/ssd_mobilenetv1_model-* files exist.`);
           return;
         }
         
         try {
-          addDebugLog("Loading Face Landmark model...");
           await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
           setModelLoadingProgress(66);
           setMessage("Loading facial recognition models (2/3)...");
-          addDebugLog("✅ Face Landmark model loaded successfully");
+          console.log("✅ Face Landmark model loaded");
         } catch (error) {
-          addDebugLog(`❌ Error loading Face Landmark model: ${error.message}`);
           console.error("Error loading Face Landmark model:", error);
           setMessage(`Error loading Face Landmark model. Check that ${MODEL_URL}/face_landmark_68_model-* files exist.`);
           return;
         }
         
         try {
-          addDebugLog("Loading Face Recognition model...");
           await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
           setModelLoadingProgress(100);
           setMessage("Loading facial recognition models (3/3)...");
-          addDebugLog("✅ Face Recognition model loaded successfully");
+          console.log("✅ Face Recognition model loaded");
         } catch (error) {
-          addDebugLog(`❌ Error loading Face Recognition model: ${error.message}`);
           console.error("Error loading Face Recognition model:", error);
           setMessage(`Error loading Face Recognition model. Check that ${MODEL_URL}/face_recognition_model-* files exist.`);
           return;
@@ -92,12 +78,10 @@ const FaceRecognition = () => {
         
         setModelsLoaded(true);
         setMessage("Loading worker face data...");
-        addDebugLog("All models loaded successfully. Moving to load worker face data.");
         
         // Fetch worker data
         await loadWorkerFaces();
       } catch (error) {
-        addDebugLog(`❌ General error in model loading process: ${error.message}`);
         console.error("Error in model loading process:", error);
         setMessage("Error loading facial recognition models. Please check console for details and refresh.");
       }
@@ -108,7 +92,7 @@ const FaceRecognition = () => {
 
   // Handle webcam ready state
   const handleWebcamReady = () => {
-    addDebugLog("Webcam is ready for use");
+    console.log("Webcam is ready");
     setWebcamReady(true);
     setMessage(prevMessage => prevMessage === "Loading worker face data..." ? 
       "Face scanning ready. Please look at the camera." : prevMessage);
@@ -117,19 +101,14 @@ const FaceRecognition = () => {
   // Load worker faces from Firebase
   const loadWorkerFaces = async () => {
     try {
-      addDebugLog("Starting to load worker faces from Firestore...");
-      
       // Get all workers from Firestore
       const workersCollection = collection(db, "workers");
       const workerSnapshot = await getDocs(workersCollection);
-      
-      addDebugLog(`Retrieved ${workerSnapshot.docs.length} worker documents from Firestore`);
       
       const workersData = [];
       const labeledDescriptors = [];
       
       if (workerSnapshot.empty) {
-        addDebugLog("❌ No worker records found in Firestore database");
         setMessage("No worker records found in database.");
         return;
       }
@@ -144,32 +123,21 @@ const FaceRecognition = () => {
           id: workerDoc.id
         });
         
-        addDebugLog(`Processing worker: ${workerData.name}, ID: ${workerData.workerId}, Doc ID: ${workerDoc.id}`);
-        
         // Extract worker ID from Firestore
         const workerIdRaw = workerData.workerId || "";
         const workerId = workerIdRaw.replace("worker_", ""); // Remove prefix if present
-        addDebugLog(`Extracted worker ID: ${workerId}`);
         
         try {
-          // Get face image URL from Firebase Storage
-          const imagePath = `worker-faces/workerId_${workerId}.jpg`;
-          addDebugLog(`Attempting to load image from storage path: ${imagePath}`);
-          
-          const imageUrl = await getDownloadURL(ref(storage, imagePath));
-          addDebugLog(`✅ Successfully got image URL: ${imageUrl.substring(0, 50)}...`);
+          // Get face image URL from Firebase Storage - match your naming pattern
+          const imageUrl = await getDownloadURL(ref(storage, `worker-faces/workerId_${workerId}.jpg`));
           
           // Load image and get face descriptor
-          addDebugLog(`Fetching image for face detection...`);
           const img = await faceapi.fetchImage(imageUrl);
-          addDebugLog(`Image fetched successfully, running face detection...`);
-          
           const detections = await faceapi.detectSingleFace(img)
             .withFaceLandmarks()
             .withFaceDescriptor();
           
           if (detections) {
-            addDebugLog(`✅ Face detected in image for worker: ${workerData.name}`);
             const descriptor = detections.descriptor;
             // Use the Firestore document ID as the label for face matching
             labeledDescriptors.push(
@@ -178,38 +146,27 @@ const FaceRecognition = () => {
                 [descriptor]
               )
             );
-            addDebugLog(`Added face descriptor for worker: ${workerData.name}`);
+            console.log(`✅ Loaded face data for worker: ${workerData.name}`);
           } else {
-            addDebugLog(`⚠️ No face detected in image for worker: ${workerData.name}. Check image quality.`);
-            console.warn(`No face detected in image for worker: ${workerData.name}`);
+            console.warn(`⚠️ No face detected in image for worker: ${workerData.name}`);
           }
         } catch (error) {
-          addDebugLog(`❌ Error processing worker ${workerData.name}: ${error.message}`);
           console.error(`Error loading face for worker ${workerData.workerId}:`, error);
         }
       }
       
-      addDebugLog(`Processed all workers. Found ${labeledDescriptors.length} valid face descriptors out of ${workersData.length} workers.`);
-      
       // Create face matcher with loaded descriptors
       if (labeledDescriptors.length > 0) {
-        addDebugLog(`Creating face matcher with ${labeledDescriptors.length} descriptors`);
         const matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
         setFaceMatcher(matcher);
         setWorkers(workersData);
-        
-        const statusMessage = webcamReady ? 
+        setMessage(webcamReady ? 
           `Face scanning ready. Loaded ${labeledDescriptors.length} worker faces.` : 
-          `Loading webcam. Loaded ${labeledDescriptors.length} worker faces.`;
-        
-        setMessage(statusMessage);
-        addDebugLog(`Face recognition system ready. ${statusMessage}`);
+          `Loading webcam. Loaded ${labeledDescriptors.length} worker faces.`);
       } else {
-        addDebugLog(`❌ No valid worker face data found. Check image quality and storage paths.`);
         setMessage("No worker face data found. Please ensure worker face images are uploaded to storage.");
       }
     } catch (error) {
-      addDebugLog(`❌ General error loading worker faces: ${error.message}`);
       console.error("Error loading worker faces:", error);
       setMessage("Error loading worker data. Please check network connection and try again.");
     }
@@ -217,10 +174,7 @@ const FaceRecognition = () => {
 
   // Face detection and recognition function
   const detectFaces = useCallback(async () => {
-    if (!isScanning || !webcamRef.current || !canvasRef.current || !faceMatcher || !webcamReady) {
-      // Don't log this to avoid spamming the console
-      return;
-    }
+    if (!isScanning || !webcamRef.current || !canvasRef.current || !faceMatcher || !webcamReady) return;
 
     const video = webcamRef.current.video;
     if (!video) return;
@@ -257,18 +211,15 @@ const FaceRecognition = () => {
       
       // Match detected faces with workers
       if (detections && detections.length > 0) {
-        addDebugLog(`Detected ${detections.length} faces in webcam`);
-        
         for (const detection of detections) {
           // Make sure detection has valid dimensions
           if (!detection || !detection.detection || !detection.detection.box || 
               detection.detection.box.width === null || detection.detection.box.height === null) {
-            addDebugLog("⚠️ Invalid detection object skipped");
+            console.warn("Invalid detection object:", detection);
             continue;
           }
           
           const match = faceMatcher.findBestMatch(detection.descriptor);
-          addDebugLog(`Face match result: ${match.label}, distance: ${match.distance.toFixed(2)}`);
           
           if (match && match.label !== 'unknown') {
             // Draw detection on canvas
@@ -281,7 +232,6 @@ const FaceRecognition = () => {
             
             // If we have a good match
             if (match.distance < 0.6) {
-              addDebugLog(`✅ Good match found for worker ID: ${match.label}`);
               const workerId = match.label;
               await markAttendance(workerId);
               return; // Exit after finding a good match
@@ -294,12 +244,10 @@ const FaceRecognition = () => {
               boxColor: 'red' 
             });
             drawBox.draw(canvas);
-            addDebugLog("⚠️ Unknown face detected");
           }
         }
       }
     } catch (error) {
-      addDebugLog(`❌ Error in face detection: ${error.message}`);
       console.error("Error in face detection:", error);
     }
 
@@ -312,32 +260,25 @@ const FaceRecognition = () => {
   // Start face detection when models and data are loaded
   useEffect(() => {
     if (modelsLoaded && faceMatcher && isScanning && webcamReady) {
-      addDebugLog("Starting face detection loop");
       detectFaces();
-      return () => {
-        addDebugLog("Stopping face detection loop");
-      };
+      return () => {};
     }
   }, [modelsLoaded, faceMatcher, isScanning, detectFaces, webcamReady]);
 
   // Mark attendance for matched worker
   const markAttendance = async (workerId) => {
     try {
-      addDebugLog(`Marking attendance for worker ID: ${workerId}`);
       setMessage("Face matched! Processing...");
       setIsScanning(false);
       
       const workerDocRef = doc(db, "workers", workerId);
-      addDebugLog(`Fetching worker document from Firestore`);
       const workerDoc = await getDoc(workerDocRef);
 
       if (workerDoc.exists()) {
         const workerData = workerDoc.data();
-        addDebugLog(`Worker document found: ${workerData.name}`);
 
         // Update attendance status with timestamp
         const timestamp = new Date().toISOString();
-        addDebugLog(`Updating attendance status in Firestore`);
         await updateDoc(workerDocRef, { 
           attendance: "Present",
           lastAttendanceTime: timestamp
@@ -351,14 +292,12 @@ const FaceRecognition = () => {
         });
         
         setMessage(`Face recognized: ${workerData.name}`);
-        addDebugLog(`✅ Attendance successfully marked for: ${workerData.name}`);
+        console.log(`✅ Attendance marked for: ${workerData.name}`);
       } else {
-        addDebugLog(`❌ Worker document does not exist in Firestore`);
         setScannedWorker({ error: "❌ Worker record not found!" });
         setMessage("Face recognized but worker record not found!");
       }
     } catch (error) {
-      addDebugLog(`❌ Error marking attendance: ${error.message}`);
       console.error("Error marking attendance:", error);
       setScannedWorker({ error: "❌ Error marking attendance!" });
       setMessage("Error occurred while processing attendance!");
@@ -426,20 +365,6 @@ const FaceRecognition = () => {
           </div>
         )}
 
-        {/* Debug Panel */}
-        <div className="mt-6 p-2 border border-gray-200 bg-gray-50 rounded text-left">
-          <h3 className="text-sm font-bold mb-1">Debug Information:</h3>
-          <div className="text-xs max-h-32 overflow-y-auto">
-            {debugInfo.length === 0 ? (
-              <p className="text-gray-500 italic">No debug information yet</p>
-            ) : (
-              debugInfo.map((log, index) => (
-                <div key={index} className="mb-1">{log}</div>
-              ))
-            )}
-          </div>
-        </div>
-
         {/* Buttons */}
         <div className="mt-6 flex justify-center gap-4">
           <button
@@ -455,7 +380,6 @@ const FaceRecognition = () => {
                 setIsScanning(true);
                 setScannedWorker(null);
                 setMessage("Face scanning ready. Please look at the camera.");
-                addDebugLog("Restarting face scanning");
               }}
               className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
             >
@@ -471,13 +395,6 @@ const FaceRecognition = () => {
               🔄 Refresh Page
             </button>
           )}
-          
-          <button
-            onClick={() => addDebugLog("Manual check: " + (debugInfo.length > 0 ? "Debug logging working" : "No debug logs yet"))}
-            className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition"
-          >
-            🐛 Test Debug
-          </button>
         </div>
       </div>
     </div>
