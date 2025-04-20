@@ -6,3 +6,5 @@ venv\Scripts\activate
 python -c "from ultralytics import YOLO; model = YOLO('best.pt'); results = model(['img/' + f for f in os.listdir('img') if f.endswith(('.jpg', '.png', '.jpeg'))], show=True)"
 
 python run_yolo.py
+
+python qr_scan_firebase.py

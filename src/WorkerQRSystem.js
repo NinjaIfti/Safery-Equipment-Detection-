@@ -1,25 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
-import { initializeApp } from "firebase/app";
-import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";  
-import { getFirestore, collection, getDocs, query, orderBy, setDoc, doc, deleteDoc } from "firebase/firestore";  
+import { storage, db } from './firebase';  
 import QRCode from "qrcode"; 
 import { useNavigate } from "react-router-dom";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";  
+import { collection, getDocs, query, orderBy, setDoc, doc, deleteDoc } from "firebase/firestore";
 
-// Firebase Config
-const firebaseConfig = {
-  apiKey: "AIzaSyC2gGtKPH8wXRQMT_P924WgdnyZtsLxmFk",
-  authDomain: "safety-equipment-1d08b.firebaseapp.com",
-  projectId: "safety-equipment-1d08b",
-  storageBucket: "safety-equipment-1d08b.firebasestorage.app",
-  messagingSenderId: "567020346429",
-  appId: "1:567020346429:web:4eb706de550698d97b5e54",
-  measurementId: "G-5RZPDBJT78",
-};
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const storage = getStorage(app);
-const db = getFirestore(app);
 
 const WorkerQRSystem = () => {
   const navigate = useNavigate();
