@@ -25,6 +25,8 @@ const FaceRecognition = () => {
   const [message, setMessage] = useState("Loading facial recognition models...");
   const [modelLoadingProgress, setModelLoadingProgress] = useState(0);
   const [webcamReady, setWebcamReady] = useState(false);
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [showAttendanceTable, setShowAttendanceTable] = useState(false);
   
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
@@ -285,11 +287,32 @@ const FaceRecognition = () => {
         });
 
         // Set scanned worker details
-        setScannedWorker({ 
+        const updatedWorkerData = { 
           ...workerData, 
+          id: workerId,
           attendance: "Present",
           timestamp: timestamp
+        };
+        
+        setScannedWorker(updatedWorkerData);
+        
+        // Add to attendance records list
+        setAttendanceRecords(prev => {
+          // Check if this worker is already in the list
+          const existingIndex = prev.findIndex(w => w.workerId === workerData.workerId);
+          if (existingIndex >= 0) {
+            // Update existing record
+            const updated = [...prev];
+            updated[existingIndex] = updatedWorkerData;
+            return updated;
+          } else {
+            // Add new record
+            return [...prev, updatedWorkerData];
+          }
         });
+        
+        // Show attendance table after successful recognition
+        setShowAttendanceTable(true);
         
         setMessage(`Face recognized: ${workerData.name}`);
         console.log(`✅ Attendance marked for: ${workerData.name}`);
@@ -304,9 +327,21 @@ const FaceRecognition = () => {
     }
   };
 
+  // Format timestamp for display
+  const formatTime = (timestamp) => {
+    if (!timestamp) return "N/A";
+    
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString() + ' ' + date.toLocaleDateString();
+    } catch (e) {
+      return "Invalid date";
+    }
+  };
+
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-6">
-      <div className="w-full max-w-xl bg-white p-6 rounded-lg shadow-lg text-center">
+    <div className="min-h-screen flex flex-col items-center bg-gray-100 p-6">
+      <div className="w-full max-w-2xl bg-white p-6 rounded-lg shadow-lg text-center">
         <h2 className="text-2xl font-semibold text-gray-800">👤 Face Recognition Attendance</h2>
         
         <p className="mt-2 text-sm text-gray-600">{message}</p>
@@ -344,24 +379,76 @@ const FaceRecognition = () => {
         )}
 
         {/* Scanned Worker Details */}
-        {scannedWorker && (
+        {scannedWorker && !scannedWorker.error && (
           <div className="mt-6 p-4 bg-gray-100 border rounded-lg">
-            {scannedWorker.error ? (
-              <h3 className="text-red-600 font-semibold">{scannedWorker.error}</h3>
-            ) : (
-              <>
-                <h3 className="text-green-600 font-semibold">✅ Worker Identified</h3>
+            <h3 className="text-green-600 font-semibold">✅ Worker Identified</h3>
+            <div className="flex items-center justify-center mt-2">
+              {scannedWorker.faceImageURL && (
+                <img 
+                  src={scannedWorker.faceImageURL} 
+                  alt={`${scannedWorker.name}`}
+                  className="h-16 w-16 object-cover rounded-full border-2 border-green-500 mr-4"
+                />
+              )}
+              <div className="text-left">
                 <p className="text-gray-700"><strong>Name:</strong> {scannedWorker.name}</p>
                 <p className="text-gray-700"><strong>Worker ID:</strong> {scannedWorker.workerId}</p>
                 <p className="text-gray-700"><strong>Post:</strong> {scannedWorker.post}</p>
-                <p className={`text-lg font-semibold ${scannedWorker.attendance === "Present" ? "text-green-600" : "text-red-600"}`}>
-                  <strong>Attendance:</strong> {scannedWorker.attendance}
+                <p className="text-green-600 font-semibold">
+                  <strong>Attendance:</strong> {scannedWorker.attendance} at {formatTime(scannedWorker.timestamp)}
                 </p>
-                {scannedWorker.timestamp && (
-                  <p className="text-gray-700"><strong>Time:</strong> {new Date(scannedWorker.timestamp).toLocaleTimeString()}</p>
-                )}
-              </>
-            )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {scannedWorker && scannedWorker.error && (
+          <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <h3 className="text-red-600 font-semibold">{scannedWorker.error}</h3>
+          </div>
+        )}
+
+        {/* Attendance Records Table */}
+        {showAttendanceTable && attendanceRecords.length > 0 && (
+          <div className="mt-6">
+            <h3 className="text-xl font-semibold text-gray-800 mb-2">Today's Attendance</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-full border-collapse bg-white rounded-lg shadow">
+                <thead>
+                  <tr className="bg-gray-100 text-gray-800">
+                    <th className="px-4 py-2 text-left">Worker</th>
+                    <th className="px-4 py-2 text-left">ID</th>
+                    <th className="px-4 py-2 text-left">Post</th>
+                    <th className="px-4 py-2 text-left">Status</th>
+                    <th className="px-4 py-2 text-left">Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {attendanceRecords.map((record) => (
+                    <tr key={record.workerId} className="border-t hover:bg-gray-50">
+                      <td className="px-4 py-2 flex items-center">
+                        {record.faceImageURL && (
+                          <img 
+                            src={record.faceImageURL} 
+                            alt={record.name} 
+                            className="h-8 w-8 object-cover rounded-full mr-2"
+                          />
+                        )}
+                        {record.name}
+                      </td>
+                      <td className="px-4 py-2">{record.workerId}</td>
+                      <td className="px-4 py-2">{record.post}</td>
+                      <td className="px-4 py-2">
+                        <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
+                          {record.attendance}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2 text-sm">{formatTime(record.timestamp)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -393,6 +480,15 @@ const FaceRecognition = () => {
               className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
             >
               🔄 Refresh Page
+            </button>
+          )}
+          
+          {attendanceRecords.length > 0 && (
+            <button
+              onClick={() => setShowAttendanceTable(!showAttendanceTable)}
+              className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition"
+            >
+              {showAttendanceTable ? "🔽 Hide Attendance" : "🔼 Show Attendance"} 
             </button>
           )}
         </div>

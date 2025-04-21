@@ -1,13 +1,22 @@
+
 import React, { useState, useRef, useEffect } from "react";
 import { storage, db } from './firebase';  
 import QRCode from "qrcode"; 
 import { useNavigate } from "react-router-dom";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";  
-import { collection, getDocs, query, orderBy, setDoc, doc, deleteDoc } from "firebase/firestore";
+import { 
+  collection, 
+  getDocs, 
+  query, 
+  orderBy, 
+  setDoc, 
+  doc, 
+  deleteDoc, 
+  updateDoc 
+} from "firebase/firestore";
 
 
-
-const WorkerQRSystem = () => {
+const WorkerQRSystemWithAttendance = () => {
   const navigate = useNavigate();
   const [worker, setWorker] = useState({ name: "", workerId: "", post: "" });
   const [workers, setWorkers] = useState([]);
@@ -16,6 +25,7 @@ const WorkerQRSystem = () => {
   const [imagePreview, setImagePreview] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [updateFaceOnly, setUpdateFaceOnly] = useState(false);
+  const [showAttendance, setShowAttendance] = useState(false);
   const fileInputRef = useRef(null);
   const qrCanvasRef = useRef(null);
 
@@ -263,12 +273,176 @@ const WorkerQRSystem = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // Format timestamp for display
+  const formatTime = (timestamp) => {
+    if (!timestamp) return "-";
+    
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString() + ' ' + date.toLocaleDateString();
+    } catch (e) {
+      return "Invalid date";
+    }
+  };
+
+  // Get today's date for filtering attendance records
+  const getTodayDateString = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0]; // YYYY-MM-DD format
+  };
+
+  // Check if attendance date is from today
+  const isAttendanceFromToday = (timestamp) => {
+    if (!timestamp) return false;
+    
+    try {
+      const today = getTodayDateString();
+      const attendanceDate = new Date(timestamp).toISOString().split('T')[0];
+      return today === attendanceDate;
+    } catch (e) {
+      return false;
+    }
+  };
+
+  // Reset all attendance records
+  const resetAllAttendance = async () => {
+    if (!window.confirm("Are you sure you want to reset attendance for all workers?")) {
+      return;
+    }
+    
+    setIsUploading(true);
+    try {
+      // Update each worker document to reset attendance
+      for (const worker of workers) {
+        const workerDocRef = doc(db, "workers", worker.id);
+        await updateDoc(workerDocRef, { 
+          attendance: "Absent",
+          lastAttendanceTime: null
+        });
+      }
+      
+      // Refresh worker list
+      await fetchWorkers();
+      window.alert("All attendance records have been reset successfully");
+    } catch (error) {
+      console.error("Error resetting attendance:", error);
+      window.alert(`Error resetting attendance: ${error.message}`);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-cover bg-center bg-no-repeat flex items-center justify-center py-8" style={{ backgroundImage: "url('/images/bg.jpg')" }}>
       <div className="w-full max-w-4xl bg-white bg-opacity-90 p-6 rounded-lg shadow-xl">
         <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
           👷 Admin - Worker QR Code System
         </h2>
+
+        {/* Attendance Report Button */}
+        <div className="mb-4 flex justify-end">
+          <button
+            onClick={() => setShowAttendance(!showAttendance)}
+            className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition flex items-center gap-1"
+          >
+            {showAttendance ? "🔽 Hide Attendance" : "🔼 Show Attendance"} 
+          </button>
+        </div>
+
+        {/* Attendance Report Section */}
+        {showAttendance && (
+          <div className="mb-6 bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-semibold text-gray-800">📊 Today's Attendance Report</h3>
+              <button
+                onClick={resetAllAttendance}
+                className="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 transition"
+              >
+                Reset All Attendance
+              </button>
+            </div>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse bg-white rounded-lg">
+                <thead>
+                  <tr className="bg-gray-100 text-gray-800">
+                    <th className="px-4 py-2 text-left">Worker</th>
+                    <th className="px-4 py-2 text-left">ID</th>
+                    <th className="px-4 py-2 text-left">Post</th>
+                    <th className="px-4 py-2 text-left">Status</th>
+                    <th className="px-4 py-2 text-left">Time</th>
+                    <th className="px-4 py-2 text-left">Method</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {workers.map((w) => {
+                    const isPresent = w.attendance === "Present" && isAttendanceFromToday(w.lastAttendanceTime);
+                    return (
+                      <tr key={w.id} className="border-t hover:bg-gray-50">
+                        <td className="px-4 py-2 flex items-center">
+                          {w.faceImageURL && (
+                            <img 
+                              src={w.faceImageURL} 
+                              alt={w.name} 
+                              className="h-8 w-8 object-cover rounded-full mr-2"
+                            />
+                          )}
+                          {w.name}
+                        </td>
+                        <td className="px-4 py-2">{w.workerId}</td>
+                        <td className="px-4 py-2">{w.post}</td>
+                        <td className="px-4 py-2">
+                          <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                            isPresent 
+                              ? "bg-green-100 text-green-800" 
+                              : "bg-red-100 text-red-800"
+                          }`}>
+                            {isPresent ? "Present" : "Absent"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 text-sm">
+                          {isPresent ? formatTime(w.lastAttendanceTime) : "-"}
+                        </td>
+                        <td className="px-4 py-2 text-sm">
+                          {isPresent ? (w.attendanceMethod || "Face Recognition") : "-"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {workers.length === 0 && (
+                    <tr className="border-t">
+                      <td colSpan="6" className="p-4 text-center text-gray-500">
+                        No workers found. Add workers to view attendance.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            
+            {/* Attendance Summary */}
+            <div className="mt-4 flex gap-6 justify-center">
+              <div className="px-4 py-2 bg-green-50 border border-green-200 rounded-lg text-center">
+                <span className="text-lg font-semibold text-green-700">
+                  {workers.filter(w => w.attendance === "Present" && isAttendanceFromToday(w.lastAttendanceTime)).length}
+                </span>
+                <p className="text-sm text-green-600">Present</p>
+              </div>
+              <div className="px-4 py-2 bg-red-50 border border-red-200 rounded-lg text-center">
+                <span className="text-lg font-semibold text-red-700">
+                  {workers.filter(w => w.attendance !== "Present" || !isAttendanceFromToday(w.lastAttendanceTime)).length}
+                </span>
+                <p className="text-sm text-red-600">Absent</p>
+              </div>
+              <div className="px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg text-center">
+                <span className="text-lg font-semibold text-blue-700">
+                  {workers.length}
+                </span>
+                <p className="text-sm text-blue-600">Total Workers</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Worker Form */}
         <form onSubmit={updateFaceOnly ? () => handleUpdateFaceOnly(editingWorkerId) : handleSubmit} className="flex flex-col gap-4 mb-6">
@@ -388,79 +562,97 @@ const WorkerQRSystem = () => {
                 <th className="p-2 text-left">Post</th>
                 <th className="p-2 text-left">Face Image</th>
                 <th className="p-2 text-left">QR Code</th>
+                <th className="p-2 text-left">Attendance</th>
                 <th className="p-2 text-left">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {workers.map((w) => (
-                <tr key={w.workerId} className="border-t hover:bg-gray-50 text-sm">
-                  <td className="p-2">{w.name}</td>
-                  <td className="p-2">{w.workerId}</td>
-                  <td className="p-2">{w.post}</td>
-                  <td className="p-2 whitespace-nowrap">
-                    {w.faceImageURL ? (
-                      <div className="flex items-center gap-2">
-                        <img 
-                          src={w.faceImageURL} 
-                          alt="Face" 
-                          className="h-8 w-8 object-cover rounded-full border"
-                        />
+              {workers.map((w) => {
+                const isPresent = w.attendance === "Present" && isAttendanceFromToday(w.lastAttendanceTime);
+                return (
+                  <tr key={w.workerId} className="border-t hover:bg-gray-50 text-sm">
+                    <td className="p-2">{w.name}</td>
+                    <td className="p-2">{w.workerId}</td>
+                    <td className="p-2">{w.post}</td>
+                    <td className="p-2 whitespace-nowrap">
+                      {w.faceImageURL ? (
+                        <div className="flex items-center gap-2">
+                          <img 
+                            src={w.faceImageURL} 
+                            alt="Face" 
+                            className="h-8 w-8 object-cover rounded-full border"
+                          />
+                          <a
+                            href={w.faceImageURL}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-500 hover:underline text-xs"
+                          >
+                            View
+                          </a>
+                        </div>
+                      ) : (
+                        <span className="text-gray-500 text-xs">No Image</span>
+                      )}
+                    </td>
+                    <td className="p-2 whitespace-nowrap">
+                      {w.qrCodeURL ? (
                         <a
-                          href={w.faceImageURL}
+                          href={w.qrCodeURL}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-blue-500 hover:underline text-xs"
+                          className="text-blue-500 hover:underline"
                         >
-                          View
+                          🔍 View QR
                         </a>
-                      </div>
-                    ) : (
-                      <span className="text-gray-500 text-xs">No Image</span>
-                    )}
-                  </td>
-                  <td className="p-2 whitespace-nowrap">
-                    {w.qrCodeURL ? (
-                      <a
-                        href={w.qrCodeURL}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-500 hover:underline"
-                      >
-                        🔍 View QR
-                      </a>
-                    ) : (
-                      <span className="text-gray-500">No QR</span>
-                    )}
-                  </td>
-                  <td className="p-2">
-                    <div className="flex flex-col gap-1">
-                      <div className="flex gap-1">
+                      ) : (
+                        <span className="text-gray-500">No QR</span>
+                      )}
+                    </td>
+                    <td className="p-2">
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                        isPresent 
+                          ? "bg-green-100 text-green-800" 
+                          : "bg-red-100 text-red-800"
+                      }`}>
+                        {isPresent ? "Present" : "Absent"}
+                      </span>
+                      {isPresent && w.lastAttendanceTime && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          {formatTime(w.lastAttendanceTime)}
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-2">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => handleEditWorker(w)}
+                            className="px-2 py-1 bg-orange-500 text-white text-xs rounded hover:bg-orange-600 transition"
+                          >
+                            ✏️ Edit
+                          </button>
+                          <button
+                            onClick={() => handleDelete(w.workerId)}
+                            className="px-2 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600 transition"
+                          >
+                            🗑 Delete
+                          </button>
+                        </div>
                         <button
-                          onClick={() => handleEditWorker(w)}
-                          className="px-2 py-1 bg-orange-500 text-white text-xs rounded hover:bg-orange-600 transition"
+                          onClick={() => handleUpdateFaceClick(w)}
+                          className="px-2 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 transition"
                         >
-                          ✏️ Edit
-                        </button>
-                        <button
-                          onClick={() => handleDelete(w.workerId)}
-                          className="px-2 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600 transition"
-                        >
-                          🗑 Delete
+                          📸 Update Face
                         </button>
                       </div>
-                      <button
-                        onClick={() => handleUpdateFaceClick(w)}
-                        className="px-2 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 transition"
-                      >
-                        📸 Update Face
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
               {workers.length === 0 && (
                 <tr className="border-t">
-                  <td colSpan="6" className="p-4 text-center text-gray-500">
+                  <td colSpan="7" className="p-4 text-center text-gray-500">
                     No workers found. Add a worker to get started.
                   </td>
                 </tr>
@@ -469,18 +661,19 @@ const WorkerQRSystem = () => {
           </table>
         </div>
 
-        {/* Centered QR Scanner Button */}
-        <div className="flex justify-center mt-6">
+        {/* Buttons for Navigation */}
+        <div className="flex justify-center gap-4 mt-6">
           <button
             onClick={() => navigate("/scan")}
             className="py-2 px-4 bg-blue-500 text-white font-semibold rounded-lg hover:bg-blue-600 transition"
           >
-            📷 Go to Scanner
+             👤 Face Recognition
           </button>
+        
         </div>
       </div>
     </div>
   );
 };
 
-export default WorkerQRSystem;
+export default WorkerQRSystemWithAttendance;
