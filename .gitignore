@@ -7,3 +7,4 @@ detect/
 QR_codes/
 node_modules/
 note_needed/
+/src/firebase/
