@@ -336,7 +336,7 @@ const WorkerQRSystemWithAttendance = () => {
     <div className="min-h-screen bg-cover bg-center bg-no-repeat flex items-center justify-center py-8" style={{ backgroundImage: "url('/images/bg.jpg')" }}>
       <div className="w-full max-w-4xl bg-white bg-opacity-90 p-6 rounded-lg shadow-xl">
         <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-          👷 Admin - Worker QR Code System
+          👷 Admin - Worker Attendance System
         </h2>
 
         {/* Attendance Report Button */}
