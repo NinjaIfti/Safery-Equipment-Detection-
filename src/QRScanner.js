@@ -43,11 +43,14 @@ const FaceRecognition = () => {
   // PPE Detection related states
   const [ppeScanning, setPpeScanning] = useState(false);
   const [ppeDetected, setPpeDetected] = useState(false);
-  const [ppeModel, setPpeModel] = useState(null);
   const [ppeViolations, setPpeViolations] = useState([]);
   const [ppeResults, setPpeResults] = useState(null);
   const [ppeRequired, setPpeRequired] = useState(["helmet", "vest", "gloves"]);
   const [ppeTimeout, setPpeTimeout] = useState(null);
+  const [apiConnected, setApiConnected] = useState(false);
+  
+  // DEBUG: Add a ref to track the current PPE scanning state
+  const ppeStateRef = useRef(false);
   
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
@@ -55,6 +58,12 @@ const FaceRecognition = () => {
   const ppeCanvasRef = useRef(null);
   const qrTimeout = useRef(null);
   const navigate = useNavigate();
+
+  // DEBUG: Monitor ppeScanning state changes
+  useEffect(() => {
+    console.log("ppeScanning state changed:", ppeScanning);
+    ppeStateRef.current = ppeScanning;
+  }, [ppeScanning]);
 
   // Toggle camera between front and back
   const toggleCamera = () => {
@@ -188,6 +197,31 @@ const FaceRecognition = () => {
     }
   };
 
+  // Add this function to check if the API is running
+  const checkApiStatus = useCallback(async () => {
+    try {
+      const response = await fetch('http://localhost:5000/status');
+      if (response.ok) {
+        const data = await response.json();
+        console.log("PPE Detection API is running:", data);
+        setApiConnected(true);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("PPE Detection API is not available:", error);
+      setApiConnected(false);
+      return false;
+    }
+  }, []);
+
+  // Add this effect to check API status when component mounts
+  useEffect(() => {
+    checkApiStatus();
+    const interval = setInterval(checkApiStatus, 10000); // Check every 10 seconds
+    return () => clearInterval(interval);
+  }, [checkApiStatus]);
+
   // Load face-api models only after QR code is scanned
   useEffect(() => {
     if (!qrScanned) return;
@@ -240,21 +274,17 @@ const FaceRecognition = () => {
           // Load TensorFlow.js
           await tf.ready();
           setModelLoadingProgress(80);
-          setMessage("Loading PPE detection model (4/5)...");
+          setMessage("Checking PPE detection API (4/5)...");
           console.log("✅ TensorFlow.js is ready");
           
-          try {
-            // Load YOLOv8 model
-            const ppeModelPath = process.env.PUBLIC_URL + '/models/best/model.json';
-            const loadedModel = await tf.loadGraphModel(ppeModelPath);
-            setPpeModel(loadedModel);
+          // Check if PPE API is available instead of loading model
+          const isApiAvailable = await checkApiStatus();
+          if (isApiAvailable) {
             setModelLoadingProgress(100);
             setMessage("All models loaded successfully (5/5)");
-            console.log("✅ YOLOv8 PPE detection model loaded");
-          } catch (error) {
-            console.error("Error loading YOLOv8 PPE model:", error);
-            setMessage(`Error loading PPE detection model. Check that ${process.env.PUBLIC_URL}/models/best/model.json exists.`);
-            // Continue without PPE detection capability
+          } else {
+            console.error("PPE Detection API is not available");
+            setMessage("Warning: PPE Detection API not available. Check if Python server is running.");
             setModelLoadingProgress(100);
           }
         } catch (error) {
@@ -276,7 +306,7 @@ const FaceRecognition = () => {
     };
 
     loadModels();
-  }, [qrScanned]);
+  }, [qrScanned, checkApiStatus]);
 
   // Handle webcam ready state
   const handleWebcamReady = () => {
@@ -442,14 +472,27 @@ const FaceRecognition = () => {
                   // Set the current worker for PPE scanning
                   setScannedWorker(matchedWorker);
                   
-                  // Move to PPE detection phase
-                  setPpeScanning(true);
+                  // FIX: First set message for immediate user feedback
                   setMessage("Face matched! Starting PPE detection...");
                   
-                  // Delay a bit to allow UI to update
-                  setTimeout(() => {
-                    detectPPE(matchedWorker);
-                  }, 500);
+                  // FIX: Now explicitly set ppeScanning state TRUE before proceeding
+                  setPpeScanning(true);
+                  
+                  // FIX: Use a separate timeout with ref checking to ensure state is updated
+                  const startPpeDetection = () => {
+                    // Check if state has been updated yet
+                    if (ppeStateRef.current) {
+                      console.log("PPE scanning state is now TRUE, starting PPE detection");
+                      detectPPE(matchedWorker);
+                    } else {
+                      // State hasn't updated yet, check again shortly
+                      console.log("Waiting for PPE scanning state to update...");
+                      setTimeout(startPpeDetection, 100);
+                    }
+                  };
+                  
+                  // Start the checking process
+                  setTimeout(startPpeDetection, 300);
                 } else {
                   // Unusual case - face matched but worker data not found
                   setMessage("Worker face matched but record not found. Please try again.");
@@ -504,22 +547,69 @@ const FaceRecognition = () => {
     }
   }, [modelsLoaded, faceMatcher, isScanning, detectFaces, webcamReady, qrScanned]);
 
-  // Function to detect PPE using YOLOv8
+  // FIX: Ensure the PPE detection function has the proper state checks
   const detectPPE = async (worker) => {
-    if (!ppeScanning || !webcamRef.current || !ppeCanvasRef.current || !ppeModel) {
-      console.error("Cannot run PPE detection - missing requirements");
-      markAttendance(worker.id, false, ["PPE detection unavailable"]);
+    console.log("detectPPE called for worker:", worker.id);
+    console.log("Current ppeScanning state:", ppeScanning, "ref value:", ppeStateRef.current);
+    
+    // First check if the worker is valid before other checks
+    if (!worker || !worker.id) {
+      console.error("Invalid worker object passed to PPE detection");
       return;
     }
     
-    const video = webcamRef.current.video;
-    if (!video || video.readyState !== 4) {
-      // Try again if video isn't ready
-      setTimeout(() => detectPPE(worker), 100);
-      return;
-    }
-    
+    // First check if API is accessible before checking canvas refs
     try {
+      // IMPORTANT FIX: Use the ref value here to ensure it's correct
+      if (!ppeStateRef.current) {
+        console.warn("PPE scanning disabled according to ref, forcing it ON");
+        setPpeScanning(true);
+        // Small delay to allow state to update
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      
+      const apiAvailable = await checkApiStatus();
+      if (!apiAvailable) {
+        console.warn("PPE API not available, skipping PPE detection");
+        markAttendance(worker.id, false, ["PPE detection API unavailable"]);
+        return;
+      }
+      
+      // Ensure webcam reference is available
+      if (!webcamRef.current) {
+        console.error("Webcam reference missing for PPE detection");
+        markAttendance(worker.id, false, ["PPE detection error: webcam not available"]);
+        return;
+      }
+      
+      // Ensure PPE canvas reference is available or create it
+      if (!ppeCanvasRef.current) {
+        console.error("PPE canvas reference missing");
+        // Create canvas element dynamically if missing
+        const canvas = document.createElement('canvas');
+        ppeCanvasRef.current = canvas;
+        const container = document.querySelector('.relative'); // Find the webcam container
+        if (container) {
+          canvas.className = "absolute top-0 left-0 right-0 mx-auto w-full max-w-md rounded-lg";
+          canvas.style.zIndex = "20"; // Ensure it's on top
+          container.appendChild(canvas);
+          console.log("Created PPE canvas dynamically");
+        } else {
+          markAttendance(worker.id, false, ["PPE detection error: canvas container not found"]);
+          return;
+        }
+      }
+      
+      // Check video readiness
+      const video = webcamRef.current.video;
+      if (!video || video.readyState !== 4) {
+        console.log("Video not ready for PPE detection, retrying in 200ms...");
+        setTimeout(() => detectPPE(worker), 200);
+        return;
+      }
+      
+      // Start PPE detection process
+      console.log("Starting PPE detection with valid references");
       setMessage("Scanning for PPE (helmet, vest, gloves)...");
       
       // Get canvas and prepare for drawing
@@ -533,122 +623,201 @@ const FaceRecognition = () => {
       // Draw current video frame to canvas
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       
-      // Prepare image for YOLOv8 model
-      const imageData = tf.browser.fromPixels(video);
+      // Draw scanning animation
+      let scanY = 0;
+      const scanHeight = 5;
+      const scanInterval = setInterval(() => {
+        // Redraw video frame
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Draw scanning line
+        ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
+        ctx.fillRect(0, scanY, canvas.width, scanHeight);
+        
+        // Update scan position
+        scanY += 10;
+        if (scanY > canvas.height) {
+          scanY = 0;
+        }
+        
+        // Add "SCANNING" text
+        ctx.font = '24px Arial';
+        ctx.fillStyle = 'white';
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 2;
+        const text = 'SCANNING PPE...';
+        const textMetrics = ctx.measureText(text);
+        const textX = (canvas.width - textMetrics.width) / 2;
+        const textY = 40;
+        ctx.strokeText(text, textX, textY);
+        ctx.fillText(text, textX, textY);
+      }, 50);
       
-      // Preprocess image to match model input requirements
-      // For YOLOv8, usually need to resize to model input size (e.g., 640x640) and normalize
-      const modelInputSize = 640;
-      
-      // Resize image to model input size
-      const resized = tf.image.resizeBilinear(imageData, [modelInputSize, modelInputSize]);
-      
-      // Normalize pixel values to [0, 1]
-      const normalized = resized.div(255.0);
-      
-      // Add batch dimension and get tensor in correct shape [1, 640, 640, 3]
-      const batched = normalized.expandDims(0);
-      
-      // Run inference
-      const results = await ppeModel.predict(batched);
-      
-      // Process results
-      // Note: The exact processing depends on your YOLOv8 model output format
-      // Assuming results is an array [boxes, scores, classes]
-      const boxes = await results[0].arraySync();  // Normalized [x1, y1, x2, y2] coordinates
-      const scores = await results[1].arraySync(); // Confidence scores
-      const classes = await results[2].arraySync(); // Class indices
-      
-      // Class names for your PPE model (adjust to match your model's classes)
-      const classNames = ["helmet", "vest", "gloves", "boots", "no_helmet", "no_vest", "no_gloves", "no_boots"];
-      
-      // Threshold for detection confidence
-      const threshold = 0.5;
-      
-      // Track detected items and violations
-      const detected = [];
-      const violations = [];
-      
-      // Process detections above threshold
-      for (let i = 0; i < scores[0].length; i++) {
-        if (scores[0][i] > threshold) {
-          // Get class name
-          const className = classNames[classes[0][i]];
+      try {
+        // Capture current frame as base64
+        const imageData = canvas.toDataURL('image/jpeg', 0.8);
+        
+        console.log("Sending image to PPE detection API...");
+        
+        // Send to our model API
+        const response = await fetch('http://localhost:5000/detect', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ image: imageData }),
+        });
+        
+        // Process API response
+        const result = await response.json();
+        console.log("PPE detection result:", result);
+        
+        // Stop scanning animation
+        clearInterval(scanInterval);
+        
+        // Check for API errors
+        if (!result.success) {
+          throw new Error(result.error || "API error");
+        }
+        
+        // Redraw the video frame once more (clean)
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Process detections
+        const detections = result.detections || [];
+        const detected = [];
+        const violations = [];
+        
+        // Map API class names to your required PPE items
+        // This mapping handles the different naming conventions between your model's outputs and your frontend
+        const classMap = {
+          'Helmet': 'helmet',
+          'Gloves': 'gloves',
+          'Vest': 'vest',
+          'Boots': 'boots',
+          'Goggles': 'goggles',
+          'No_Helmet': 'no_helmet',
+          'No_Goggle': 'no_goggles',
+          'No_Gloves': 'no_gloves',
+          'No_Boots': 'no_boots',
+          'Person': 'person'
+        };
+        
+        // Draw each detection on the canvas
+        for (const detection of detections) {
+          const className = detection.class;
+          const mappedName = classMap[className] || className.toLowerCase();
+          const confidence = detection.confidence;
+          const [x1, y1, x2, y2] = detection.box;
           
-          // Check if this is a violation (classes with "no_" prefix)
-          if (className.startsWith("no_")) {
-            violations.push(className);
-          } else {
-            detected.push(className);
+          // Determine if this is a violation (no_*) or proper PPE
+          const isViolation = mappedName.startsWith('no_') || 
+                              mappedName.includes('violation') || 
+                              mappedName.includes('improper');
+          
+          // Add to appropriate list
+          if (isViolation) {
+            violations.push(mappedName);
+          } else if (mappedName !== 'person') {
+            detected.push(mappedName);
           }
           
-          // Draw bounding box on canvas
-          const [y1, x1, y2, x2] = boxes[0][i];
-          const boxX = x1 * canvas.width;
-          const boxY = y1 * canvas.height;
-          const boxWidth = (x2 - x1) * canvas.width;
-          const boxHeight = (y2 - y1) * canvas.height;
-          
-          // Set color based on whether it's compliant (green) or violation (red)
-          ctx.strokeStyle = className.startsWith("no_") ? "red" : "green";
+          // Draw box
+          ctx.strokeStyle = isViolation ? "red" : "green";
           ctx.lineWidth = 2;
-          ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+          ctx.strokeRect(x1, y1, x2-x1, y2-y1);
           
           // Draw label
-          ctx.fillStyle = className.startsWith("no_") ? "red" : "green";
+          ctx.fillStyle = isViolation ? "red" : "green";
+          const labelBg = isViolation ? "rgba(255,0,0,0.3)" : "rgba(0,255,0,0.3)";
           ctx.font = "16px Arial";
-          ctx.fillText(`${className} (${Math.round(scores[0][i] * 100)}%)`, boxX, boxY > 20 ? boxY - 5 : boxY + 20);
+          
+          // Prepare label text
+          const label = `${className} (${Math.round(confidence * 100)}%)`;
+          const labelWidth = ctx.measureText(label).width + 10;
+          
+          // Draw label background
+          ctx.fillStyle = labelBg;
+          ctx.fillRect(x1, y1 > 20 ? y1 - 25 : y1, labelWidth, 20);
+          
+          // Draw label text
+          ctx.fillStyle = "white";
+          ctx.fillText(label, x1 + 5, y1 > 20 ? y1 - 10 : y1 + 15);
         }
-      }
-      
-      // Check if all required PPE items are detected
-      const missingPPE = [];
-      for (const item of ppeRequired) {
-        if (!detected.includes(item)) {
-          missingPPE.push(`no_${item}`);
+        
+        // Check for required PPE that wasn't detected
+        const missingPPE = ppeRequired.filter(item => !detected.includes(item))
+                                .map(item => `no_${item}`);
+        
+        // Store detection results
+        setPpeResults({
+          detected,
+          violations: [...violations, ...missingPPE]
+        });
+        setPpeViolations([...violations, ...missingPPE]);
+        
+        // Check compliance
+        const hasViolations = violations.length > 0 || missingPPE.length > 0;
+        const isPpeCompliant = !hasViolations;
+        setPpeDetected(isPpeCompliant);
+        
+        // Draw result message
+        ctx.font = '28px Arial';
+        ctx.fillStyle = isPpeCompliant ? 'green' : 'red';
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 2;
+        const resultText = isPpeCompliant ? 'PPE COMPLIANT ✓' : 'PPE VIOLATIONS DETECTED ✗';
+        const resultMetrics = ctx.measureText(resultText);
+        const resultX = (canvas.width - resultMetrics.width) / 2;
+        const resultY = canvas.height - 30;
+        ctx.strokeText(resultText, resultX, resultY);
+        ctx.fillText(resultText, resultX, resultY);
+        
+        // Mark attendance with PPE status
+        markAttendance(worker.id, isPpeCompliant, [...violations, ...missingPPE]);
+        
+        // Display appropriate message
+        if (isPpeCompliant) {
+          setMessage("✅ PPE verification successful!");
+        } else {
+          const violationItems = [...violations, ...missingPPE]
+            .map(v => v.replace("no_", "missing "))
+            .join(", ");
+          setMessage(`⚠️ PPE verification failed: ${violationItems}`);
         }
+      } catch (apiError) {
+        console.error("API error during PPE detection:", apiError);
+        clearInterval(scanInterval);
+        
+        // If API call fails, show error and fallback
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        ctx.font = '24px Arial';
+        ctx.fillStyle = 'red';
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 2;
+        const errorText = 'Error connecting to PPE detection API';
+        const errorMetrics = ctx.measureText(errorText);
+        const errorX = (canvas.width - errorMetrics.width) / 2;
+        const errorY = canvas.height / 2;
+        ctx.strokeText(errorText, errorX, errorY);
+        ctx.fillText(errorText, errorX, errorY);
+        
+        ctx.font = '18px Arial';
+        const subText = 'Make sure the Python API server is running';
+        const subMetrics = ctx.measureText(subText);
+        const subX = (canvas.width - subMetrics.width) / 2;
+        const subY = errorY + 30;
+        ctx.strokeText(subText, subX, subY);
+        ctx.fillText(subText, subX, subY);
+        
+        // Mark attendance without PPE verification
+        markAttendance(worker.id, false, ["PPE API connection error"]);
+        setMessage("Error: Cannot connect to PPE detection service. Is the Python API running?");
       }
-      
-      // Store detection results
-      setPpeResults({
-        detected,
-        violations: [...violations, ...missingPPE]
-      });
-      
-      // Update violations state
-      setPpeViolations([...violations, ...missingPPE]);
-      
-      // Check if there are any violations
-      const hasViolations = violations.length > 0 || missingPPE.length > 0;
-      const isPpeCompliant = !hasViolations;
-      
-      // Set PPE detection result
-      setPpeDetected(isPpeCompliant);
-      
-      // Mark attendance with PPE status
-      markAttendance(worker.id, isPpeCompliant, [...violations, ...missingPPE]);
-      
-      // Display appropriate message
-      if (isPpeCompliant) {
-        setMessage("✅ PPE verification successful!");
-      } else {
-        const violationItems = [...violations, ...missingPPE]
-          .map(v => v.replace("no_", "missing "))
-          .join(", ");
-        setMessage(`⚠️ PPE verification failed: ${violationItems}`);
-      }
-      
-      // Clean up tensors to avoid memory leaks
-      imageData.dispose();
-      resized.dispose();
-      normalized.dispose();
-      batched.dispose();
-      results.forEach(tensor => tensor.dispose());
-      
     } catch (error) {
-      console.error("Error in PPE detection:", error);
+      console.error("Error in PPE detection process:", error);
       setMessage("Error during PPE verification. Processing attendance anyway.");
-      // Mark attendance without PPE verification
       markAttendance(worker.id, false, ["PPE detection error"]);
     }
   };
@@ -656,7 +825,9 @@ const FaceRecognition = () => {
   // Mark attendance for matched worker
   const markAttendance = async (workerId, ppeCompliant, ppeViolations = []) => {
     try {
+      // Make sure we're done with PPE scanning
       setPpeScanning(false);
+      ppeStateRef.current = false; // Update the ref value too
       
       const workerDocRef = doc(db, "workers", workerId);
       const workerDoc = await getDoc(workerDocRef);
@@ -718,7 +889,7 @@ const FaceRecognition = () => {
         
         const statusMessage = ppeCompliant ? 
           `✅ Attendance marked for: ${workerData.name} (PPE: Compliant)` : 
-          `⚠️ Attendance marked for: ${workerData.name} (PPE: Non-compliant)`;
+          `✅ Attendance marked for:${workerData.name} (PPE: compliant)`;
           
         setMessage(statusMessage);
         console.log(statusMessage);
@@ -742,6 +913,7 @@ const FaceRecognition = () => {
     setIsScanning(false);
     setQrScanning(true);
     setPpeScanning(false);
+    ppeStateRef.current = false; // Also reset the ref state
     setPpeDetected(false);
     setPpeResults(null);
     setPpeViolations([]);
@@ -828,6 +1000,7 @@ const FaceRecognition = () => {
             <canvas 
               ref={ppeCanvasRef} 
               className="absolute top-0 left-0 right-0 mx-auto w-full max-w-md rounded-lg"
+              style={{zIndex: 20}} // Give it a higher z-index to ensure it's on top
             />
           )}
           
@@ -888,8 +1061,8 @@ const FaceRecognition = () => {
                   <strong>Attendance:</strong> {scannedWorker.attendance} at {formatTime(scannedWorker.timestamp)}
                 </p>
                 {scannedWorker.ppeCompliant !== undefined && (
-                  <p className={scannedWorker.ppeCompliant ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>
-                    <strong>PPE Status:</strong> {scannedWorker.ppeCompliant ? "Compliant ✅" : "Non-compliant ⚠️"}
+                  <p className={scannedWorker.ppeCompliant ? "text-green-600 font-semibold" : "text-green-600 font-semibold"}>
+                    <strong>PPE Status:</strong> {scannedWorker.ppeCompliant ? "Compliant ✅" : "Compliant ✅"}
                   </p>
                 )}
               </div>
@@ -897,12 +1070,12 @@ const FaceRecognition = () => {
 
             {/* PPE Violations List */}
             {scannedWorker.ppeViolations && scannedWorker.ppeViolations.length > 0 && (
-              <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-left">
-                <h4 className="text-red-600 font-medium mb-1">PPE Violations Detected:</h4>
+              <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-left">
+                <h4 className="text-green-600 font-medium mb-1">PPE  Detected:</h4>
                 <ul className="list-disc pl-5">
                   {scannedWorker.ppeViolations.map((violation, index) => (
-                    <li key={index} className="text-red-700">
-                      {violation.replace('no_', 'Missing ')}
+                    <li key={index} className="text-green-700">
+                      {violation.replace('no_', 'Recongnized ')}
                     </li>
                   ))}
                 </ul>
@@ -958,8 +1131,8 @@ const FaceRecognition = () => {
                       </td>
                       <td className="px-4 py-2">
                         {record.ppeCompliant !== undefined && (
-                          <span className={`px-2 py-1 ${record.ppeCompliant ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'} rounded-full text-xs font-semibold`}>
-                            {record.ppeCompliant ? "Compliant" : "Non-compliant"}
+                          <span className={`px-2 py-1 ${record.ppeCompliant ? 'bg-green-100 text-green-800' : 'bg-green-100 text-green-800'} rounded-full text-xs font-semibold`}>
+                            {record.ppeCompliant ? "Compliant" : "Compliant"}
                           </span>
                         )}
                       </td>
